@@ -1,0 +1,144 @@
+```{r}
+library(Matrix)
+library(Seurat)
+
+counts <- readMM("T1_advanced_scRNAseq/counts.mtx.gz")
+meta <- read.table("T1_advanced_scRNAseq/meta.tsv.gz")
+features <- read.table("T1_advanced_scRNAseq/features.tsv.gz")[,1]
+dimnames(counts) <- list(features, rownames(meta))
+seurat <- CreateSeuratObject(counts = counts, meta.data = meta, project = "T1_advanced_scRNAseq")
+```
+
+```{r}
+seurat[["percent.mt"]] <- PercentageFeatureSet(seurat, pattern = "^MT[-\\.]")
+```
+
+```{r}
+VlnPlot(seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+library(patchwork)
+plot1 <- FeatureScatter(seurat, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+```
+
+```{r}
+seurat <- subset(seurat, subset = nFeature_RNA > 500 & nFeature_RNA < 4500 & percent.mt < 5)
+```
+
+```{r}
+seurat <- NormalizeData(seurat)
+```
+
+```{r}
+seurat <- FindVariableFeatures(seurat, nfeatures = 3000)
+```
+
+```{r}
+top_features <- head(VariableFeatures(seurat), 20)
+plot1 <- VariableFeaturePlot(seurat)
+plot2 <- LabelPoints(plot = plot1, points = top_features, repel = TRUE)
+plot1 + plot2
+```
+
+```{r}
+seurat <- ScaleData(seurat)
+```
+
+```{r}
+seurat <- RunPCA(seurat, npcs = 50)
+```
+
+```{r}
+ElbowPlot(seurat, ndims = ncol(Embeddings(seurat, "pca")))
+```
+
+```{r}
+PCHeatmap(seurat, dims = 1:20, cells = 500, balanced = TRUE, ncol = 4)
+```
+
+```{r}
+seurat <- RunTSNE(seurat, dims = 1:20)
+seurat <- RunUMAP(seurat, dims = 1:20)
+```
+
+```{r}
+plot1 <- TSNEPlot(seurat)
+plot2 <- UMAPPlot(seurat)
+plot1 + plot2
+```
+
+```{r}
+library(ggplot2)
+library(patchwork)
+```
+
+```{r}
+# Create a PDF file to save the plots
+pdf("figure2/unintegrated_feature_plots.pdf")
+
+markers <- c("MAP2","ENO2", "FOXG1","NEUROD6","NEUROD2","SLC17A7","DLX5","DLX2","DLX1","GAD1","GAD2","SLC32A1","ISL1","EBF1","NHLH2","LHX9" ,"TFAP2B","GBX2","SHOX2","PCP4","RSPO3","RELN","GATA3","OTX2","SOX14","POU5F1","FOXG1", "EOMES")
+
+for (gene in markers) {
+  # Create FeaturePlot for tSNE reduction
+  #plot_tsne <- FeaturePlot(seurat, gene, reduction = "tsne")
+
+  # Create FeaturePlot for UMAP reduction
+  plot_umap <- FeaturePlot(seurat, gene, reduction = "umap")
+
+ # Save the plots on separate pages
+  #plot(plot_tsne)
+  plot(plot_umap)
+}
+
+
+# Close the PDF device
+dev.off()
+```
+
+```{r}
+seurat <- FindNeighbors(seurat, dims = 1:20)
+```
+
+```{r}
+seurat <- FindClusters(seurat, resolution = 0.6)
+```
+
+```{r}
+#plot1 <- DimPlot(seurat, reduction = "tsne", label = TRUE)
+plot2 <- DimPlot(seurat, reduction = "umap", label = TRUE)
+file_path <- "figure2/unintegrated_tsne_umap.png"
+ggsave(file_path, plot2)
+```
+
+```{r}
+DoHeatmap(seurat, features = markers) + NoLegend()
+```
+
+```{r}
+library(presto)
+library(dplyr)
+cl_markers_presto <- wilcoxauc(seurat)
+cl_markers_presto %>%
+    filter(logFC > log(1.2) & pct_in > 20 & padj < 0.05) %>%
+    group_by(group) %>%
+    arrange(desc(logFC), .by_group=T) %>%
+    top_n(n = 2, wt = logFC) %>%
+    print(n = 40, width = Inf)
+```
+
+```{r}
+top10_cl_markers_presto <- cl_markers_presto %>% group_by(group) %>% top_n(n = 10, wt = logFC)
+```
+
+```{r}
+DoHeatmap(seurat, features = top10_cl_markers_presto$feature) + NoLegend()
+```
+
+# PS: Voxhunt is not included
+
+```{r}
+saveRDS(seurat, file="T1_advanced_scRNAseq/seurat_obj_all.rds")
+```
