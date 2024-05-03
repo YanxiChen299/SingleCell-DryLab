@@ -1,4 +1,4 @@
-Part 4.1: Cluster connectivity analysis with PAGA
+### Part 4.1: Cluster connectivity analysis with PAGA
 
 ```{r}
 devtools::install_github(repo = "mojaveazure/loomR", ref = "develop")
@@ -55,7 +55,7 @@ sc$pl$paga(adata_DS1,
            save="DS1_paga.png")
 ```
 
-Part 4.2: Pseudotime reconstruction without subseting into an unbranched trajectory
+### Part 4.2: Pseudotime reconstruction without subseting into an unbranched trajectory
 
 ```{r}
 library(Seurat)
@@ -69,7 +69,7 @@ seurat_DS1$dpt <- rank(dpt$dpt)
 FeaturePlot(seurat_DS1, c("dpt","SOX2","NHLH1","DCX"), ncol=4)
 ```
 
-Part 4.3: RNA velocity analysis
+### Part 4.3: RNA velocity analysis
 
 ```{r}
 install.packages(c("Rcpp","RcppEigen", "RInside", "Matrix"))
