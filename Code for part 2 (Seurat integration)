@@ -1,0 +1,80 @@
+```{r}
+library(Seurat)
+library(dplyr)
+library(patchwork)
+seurat <- readRDS("T1_advanced_scRNAseq/seurat_obj_all.rds")
+```
+
+Non integrated UMAP
+```{r}
+plot1 <- DimPlot(seurat, group.by="organoid")
+file_path <- "figure2/nonintegrated_umap.png"
+ggsave(file_path, plot1)
+```
+
+Subset data set by organoid
+
+```{r}
+seurat_sample1 <- subset(seurat, subset = organoid == "h409B2_60d_org1")
+seurat_sample2 <- subset(seurat, subset = organoid == "h409B2_67d_org1")
+seurat_sample3 <- subset(seurat, subset = organoid == "H9_60d_org1")
+seurat_sample4 <- subset(seurat, subset = organoid == "H9_67d_org1")
+seurat_sample5 <- subset(seurat, subset = organoid == "wibj_64d_org1")
+seurat_sample6 <- subset(seurat, subset = organoid == "wibj_64d_org2")
+seurat_sample7 <- subset(seurat, subset = organoid == "SC102A1_65d_org1")
+seurat_sample8 <- subset(seurat, subset = organoid == "SC102A1_65d_org2")
+
+seurat_objs <- list(DS1 = seurat_sample1, DS2 = seurat_sample2, DS3 = seurat_sample3, DS4 = seurat_sample4,DS5 = seurat_sample5, DS6 = seurat_sample6, DS7 = seurat_sample7, DS8 = seurat_sample8)
+
+memory.limit(size = 16000)  # size in MB, works in Windows, I don't know if it works in Mac
+anchors <- FindIntegrationAnchors(object.list = seurat_objs, dims = 1:20)
+```
+
+```{r}
+seurat <- IntegrateData(anchors, dims = 1:20)
+```
+
+```{r}
+seurat <- ScaleData(seurat)
+seurat <- RunPCA(seurat, npcs = 50)
+seurat <- RunUMAP(seurat, dims = 1:20)
+seurat <- FindNeighbors(seurat, dims = 1:20) %>% FindClusters(resolution = 0.6)
+
+# You may also want to save the object
+saveRDS(seurat, file="T1_advanced_scRNAseq/integrated_seurat.rds")
+```
+
+```{r}
+DefaultAssay(seurat) <- "RNA"
+plot2 <- UMAPPlot(seurat, group.by="organoid")
+plot3 <- UMAPPlot(seurat, label = T)
+file_path2 <- "figure2/integrated_umap.png"
+file_path3 <- "figure2/integrated_umap_clusterNum.png"
+library(ggplot2)
+ggsave(file_path2, plot2)
+ggsave(file_path3, plot3)
+```
+
+Feature_plot after seurat integration:
+
+```{r}
+pdf("figure2/seurat_feature_plots.pdf")
+
+markers <- c("MAP2","ENO2", "FOXG1","NEUROD6","NEUROD2","SLC17A7","DLX5","DLX2","DLX1","GAD1","GAD2","SLC32A1","ISL1","EBF1","NHLH2","LHX9" ,"TFAP2B","GBX2","SHOX2","PCP4","RSPO3","RELN","GATA3","OTX2","SOX14","POU5F1","FOXG1", "EOMES")
+
+for (gene in markers) {
+  # Create FeaturePlot for tSNE reduction
+  #plot_tsne <- FeaturePlot(seurat, gene, reduction = "tsne")
+
+  # Create FeaturePlot for UMAP reduction
+  plot_umap <- FeaturePlot(seurat, gene, reduction = "umap")
+
+ # Save the plots on separate pages
+  #plot(plot_tsne)
+  plot(plot_umap)
+}
+
+
+# Close the PDF device
+dev.off()
+```
