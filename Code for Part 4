@@ -1,0 +1,142 @@
+Part 4.1: Cluster connectivity analysis with PAGA
+
+```{r}
+devtools::install_github(repo = "mojaveazure/loomR", ref = "develop")
+```
+
+```{r}
+library(Seurat)
+library(Matrix)
+seurat_DS1 <- readRDS("T1_advanced_scRNAseq/seurat_obj_all.rds")
+```
+
+```{r}
+library(Seurat)
+library(Matrix)
+seurat_DS1 <- readRDS("T1_advanced_scRNAseq/seurat_obj_all.rds")
+library(anndata)
+adata <- AnnData(X = t(seurat_DS1[['RNA']]@layers$data),
+                 obs = data.frame(celltype = seurat_DS1@active.ident, row.names = colnames(seurat_DS1)),
+                 var = seurat_DS1[["RNA"]]@meta.data,
+                 layers = list(counts = t(seurat_DS1[['RNA']]@layers$counts)),
+                 obsm = list(pca = Embeddings(seurat_DS1,"pca")[,1:20],
+                             umap = Embeddings(seurat_DS1,"umap"))
+                )
+adata$write_h5ad("T1_advanced_scRNAseq/anndata_obj.h5ad")
+```
+
+```{r}
+library(reticulate)
+py_install("scanpy", pip=T)
+sc <- import("scanpy")
+```
+
+```{r}
+adata_DS1 <- sc$read("T1_advanced_scRNAseq/anndata_obj.h5ad") # option2: load the h5ad file
+sc$pp$neighbors(adata_DS1, n_neighbors=20L, use_rep='pca')
+sc$tl$paga(adata_DS1, groups='celltype')
+adata_DS1$write_h5ad("T1_advanced_scRNAseq/anndata_obj.h5ad")
+```
+# PS: There is an error saying that the python environment can't find "igraph"
+  sc$tl$paga(adata_DS1, groups='celltype')
+  Error in py_call_impl(callable, call_args$unnamed, call_args$named) : 
+  ModuleNotFoundError: No module named 'igraph'
+  Run `reticulate::py_last_error()` for details.
+# This is how Zhisong solved in case you have similar issues:
+> py_install('python-igraph', pip=T)
+
+```{r}
+plt <- import("matplotlib")
+plt$use("Agg", force = TRUE)
+sc$pl$paga(adata_DS1,
+           color='celltype',
+           fontsize=7,
+           frameon=FALSE,
+           save="DS1_paga.png")
+```
+
+Part 4.2: Pseudotime reconstruction without subseting into an unbranched trajectory
+
+```{r}
+library(Seurat)
+library(destiny)
+
+seurat_DS1 <- readRDS("T1_advanced_scRNAseq/seurat_obj_all.rds")
+dm <- DiffusionMap(Embeddings(seurat_DS1, "pca")[,1:20])
+dpt <- DPT(dm)
+seurat_DS1$dpt <- rank(dpt$dpt)
+
+FeaturePlot(seurat_DS1, c("dpt","SOX2","NHLH1","DCX"), ncol=4)
+```
+
+Part 4.3: RNA velocity analysis
+
+```{r}
+install.packages(c("Rcpp","RcppEigen", "RInside", "Matrix"))
+```
+
+```{r}
+library(Seurat)
+library(Matrix)
+
+seurat_DS1 <- readRDS("T1_advanced_scRNAseq/seurat_obj_all.rds")
+```
+
+```{r}
+intron <- Matrix::readMM('T1_advanced_scRNAseq/counts_intron.mtx')
+exon <- Matrix::readMM('T1_advanced_scRNAseq/counts_exon.mtx')
+barcodes <- read.table('../Desktop/ETHZ/24 spring semester/single cell tech/dry lab task/T1_advanced_scRNAseq/barcodes.tsv.gz', sep='\t')
+colnames(exon) <- barcodes[,1] # assign cells names as columns
+colnames(intron) <- barcodes[,1]
+exon <- exon[,colnames(seurat_DS1)] # change the exon colname according to the seurat_DS1 that has done with the QC control
+intron <- intron[,colnames(seurat_DS1)]
+features_exon <- read.table('../Desktop/ETHZ/24 spring semester/single cell tech/dry lab task/T1_advanced_scRNAseq/features_exon.tsv.gz', sep='\t')
+rownames(exon) <- features_exon[,1] # assign gene names as rows
+features_intron <- read.table('../Desktop/ETHZ/24 spring semester/single cell tech/dry lab task/T1_advanced_scRNAseq/features_intron.tsv.gz', sep='\t')
+rownames(intron) <- features_intron[,1]
+mats <- list(exon=exon, intron=intron)
+```
+
+```{r}
+library(anndata)
+shared_genes <- intersect(rownames(mats$exon),rownames(mats$intron))
+adata <- AnnData(X = t(mats$exon[shared_genes,]),
+                 obs = data.frame(seurat_DS1@meta.data, celltype=seurat_DS1@active.ident),
+                 var = NULL,
+                 layers = list(spliced = t(mats$exon[shared_genes,]),
+                               unspliced = t(mats$intron[shared_genes,])),
+                 obsm = list(pca = Embeddings(seurat_DS1,"pca")[,1:20],
+                             umap = Embeddings(seurat_DS1,"umap"))
+                )
+adata$write_h5ad("T1_advanced_scRNAseq/anndata_obj_scvelo.h5ad")
+```
+
+```{r}
+library(reticulate)
+py_install("scvelo", pip=T)
+scvelo <- import("scvelo")
+```
+
+```{r}
+adata_DS1 <- scvelo$read("T1_advanced_scRNAseq/anndata_obj_scvelo.h5ad")
+
+scvelo$pp$filter_and_normalize(adata_DS1,
+                               min_shared_counts=as.integer(10),
+                               n_top_genes=as.integer(3000))
+sc$pp$neighbors(adata_DS1, use_rep='pca')
+scvelo$pp$moments(adata_DS1,
+                  n_pcs=NULL, n_neighbors=NULL)
+scvelo$tl$velocity(adata_DS1)
+scvelo$tl$velocity_graph(adata_DS1)
+```
+
+```{r}
+plt <- import("matplotlib")
+plt$use("Agg", force = TRUE)
+scvelo$pl$velocity_embedding_stream(adata_DS1,
+                                    basis="umap",
+                                    color="celltype",
+                                    dpi=120,
+                                    figsize = c(8,8),
+                                    save="DS1_scvelo_stream.png")
+```
